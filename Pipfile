@@ -4,6 +4,8 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+pwinput = "*"
+termcolor = "*"
 
 [dev-packages]
 
