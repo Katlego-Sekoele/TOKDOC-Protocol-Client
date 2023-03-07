@@ -1,3 +1,4 @@
+import hashlib
 import os
 import sys
 import time
@@ -5,6 +6,8 @@ from socket import *
 import pwinput
 import getpass
 from termcolor import colored
+import readline
+
 
 from RequestHandler import request, my_access_key
 from Utilities import constants
@@ -63,8 +66,11 @@ def main():
     global serverName, serverPort, addressed, client_socket, connected, user_email, access_key
     user_input = ''
 
+    print('\x1B[3mWelcome to the TOKDOC\x1B[0m')
+
     # app lifecycle
     while user_input != constants.EXIT:
+
         # prompting and getting components from input
         user_input = input(colored('TOKDOC $', 'blue', attrs=['bold', 'reverse']) + ' ')
         input_list = user_input.split(' ')
@@ -73,10 +79,17 @@ def main():
 
         # incomplete command
         if len(input_list) < 2 and input_list[0] != 'DISCONNECT' and input_list[0] != constants.EXIT and input_list[
-            0] != constants.LIST and input_list[0] != 'HELP':
-            print(colored('Missing arguments', 'red'))
+            0] != constants.LIST and input_list[0] != 'HELP' and input_list[0] != 'CLEAR':
+            print(colored('Missing arguments or command does not exist. Use HELP for a list of commands.', 'red'))
             continue
 
+        # clear the terminal
+        if input_list[0] == 'CLEAR':
+            os.system('cls' if os.name == 'nt' else 'clear')
+            continue
+
+
+        # get help
         if input_list[0] == 'HELP':
             def command_text(text):
                 return colored(text, 'light_magenta', attrs=['bold'])
@@ -136,46 +149,6 @@ Data requests
             except Exception as e:
                 raise e
 
-        # send auth command
-        if input_list[0] == constants.AUTH:
-            email = input_list[1]
-            response_code = 501
-
-            # works in fully fledged terminal
-            password = pwinput.pwinput(prompt='Password: ', mask='*')
-            # works in all run environments
-            # password = getpass.getpass('Password: ')
-
-            # send request and capture response_code
-            response_code, content, key = auth_request(email, password)
-            if int(response_code) == 201:
-                user_email = email
-                access_key = key
-
-                print('\033[F' + colored('Logged in successfully', 'green'))
-            elif int(response_code) == 501:
-                print('\033[F' + colored('Password incorrect, please try again.', 'red'))
-            elif int(response_code) == 503:
-                print('\033[F' + colored('Error in signing up.', 'red'))
-            else:
-                print('\033[F' + colored('Error: ' + str(status_code), 'red'))
-            continue
-        # send exit request
-        if input_list[0] == 'DISCONNECT':
-            if connected:
-                connected = False
-                response_code, temp, temp = exit_request()
-                # reset access key
-                access_key = ' '
-
-                if int(response_code) == 201:
-                    print('\033[F' + colored('Disconnected', 'green'))
-                else:
-                    print('\033[F' + colored('Error: ' + str(status_code), 'red'))
-            else:
-                print('\033[F' + colored('Client is already disconnected', 'green'))
-            continue
-
         # stop the program
         if input_list[0].upper() == 'EXIT':
             if connected:
@@ -191,64 +164,132 @@ Data requests
         if not connected:
             print(colored('Client not connected. Use CONNECT command', 'red'))
             continue
+
+        # send auth command
+        try:
+            if input_list[0] == constants.AUTH:
+                email = input_list[1]
+                response_code = 501
+
+                # works in fully fledged terminal
+                password = pwinput.pwinput(prompt='Password: ', mask='*')
+                # works in all run environments
+                # password = getpass.getpass('Password: ')
+
+                # send request and capture response_code
+                response_code, content, key = auth_request(email, password)
+
+                if int(response_code) == 201:
+                    user_email = email
+                    access_key = key
+                    print('\033[F' + colored('Logged in successfully', 'green'))
+                elif int(response_code) == 501:
+                    print('\033[F' + colored('Password incorrect, please try again.', 'red'))
+                elif int(response_code) == 503:
+                    print('\033[F' + colored('Error in signing up.', 'red'))
+                else:
+                    print('\033[F' + colored('Error: ' + str(status_code), 'red'))
+                continue
+        except (BrokenPipeError, ConnectionResetError):
+            print('\033[F' + colored('Connection timed out', 'red'))
+            connected = False
+            continue
+
         if connected and (access_key is None or len(access_key.strip(' ')) == 0):
             print(colored('Client not authenticated. Use AUTH command to log in', 'red'))
             continue
 
+        # send exit request
+        try:
+            if input_list[0] == 'DISCONNECT':
+                if connected:
+                    connected = False
+                    response_code, temp, temp = exit_request()
+                    # reset access key
+                    access_key = ' '
+
+                    if int(response_code) == 201:
+                        print('\033[F' + colored('Disconnected', 'green'))
+                    else:
+                        print('\033[F' + colored('Error: ' + str(status_code), 'red'))
+                else:
+                    print('\033[F' + colored('Client is already disconnected', 'green'))
+                continue
+        except (BrokenPipeError, ConnectionResetError):
+            print('\033[F' + colored('Connection timed out', 'red'))
+            connected = False
+            continue
+
         # send list request
-        if input_list[0] == constants.LIST:
+        try:
+            if input_list[0] == constants.LIST:
 
-            status_code, content, temp = list_request()
+                status_code, content, temp = list_request()
 
-            if int(status_code) == 201:
-                # print all the files
-                files_list_string = ''
+                if int(status_code) == 201:
+                    # print all the files
+                    files_list_string = ''
 
-                for file in content:
-                    files_list_string += file + '\n'
+                    for file in content:
+                        files_list_string += file + '\n'
 
-                files_list_string = files_list_string.rstrip('\n')
+                    files_list_string = files_list_string.rstrip('\n')
 
-                print('\033[F' + colored(files_list_string, 'yellow'))
-            else:
-                print('\033[F' + colored('Error: ' + str(status_code), 'red'))
+                    print('\033[F' + colored(files_list_string, 'yellow'))
+                elif int(status_code) == 303:
+                    print('\033[F' + colored('There are no files to list.', 'yellow'))
+                else:
+                    print('\033[F' + colored('Error: ' + str(status_code), 'red'))
+                continue
+        except (BrokenPipeError, ConnectionResetError):
+            print('\033[F' + colored('Connection timed out', 'red'))
+            connected = False
             continue
 
         # send upload request
-        if input_list[0] == constants.UPLOAD:
-            try:
-                # try read the file from the client machine and upload it
-                if len(input_list) == 3:
-                    # protected file
-                    status_code, content, temp = upload_request(input_list[1].strip('"'), input_list[2].split(','))
-                else:
-                    # public file
-                    status_code, content, temp = upload_request(input_list[1].strip('"'))
-            except FileNotFoundError as e:
-                print(colored('File not found', 'red'))
+        try:
+            if input_list[0] == constants.UPLOAD:
+                try:
+                    # try read the file from the client machine and upload it
+                    if len(input_list) == 3:
+                        # protected file
+                        status_code, content, temp = upload_request(input_list[1].strip('"'), input_list[2].split(','))
+                    else:
+                        # public file
+                        status_code, content, temp = upload_request(input_list[1].strip('"'))
+                except FileNotFoundError as e:
+                    print(colored('File not found', 'red'))
 
-            if int(status_code) == 201:
-                print('\033[F' + colored('Successfully uploaded', 'green'))
-            elif int(status_code) == 505:
-                print('\033[F' + colored('Some or all authorized users do not exist', 'red'))
-            else:
-                print(colored('error: ' + str(status_code), 'red'))
+                if int(status_code) == 201:
+                    print('\033[F' + colored('Successfully uploaded', 'green'))
+                elif int(status_code) == 505:
+                    print('\033[F' + colored('Some or all authorized users do not exist', 'red'))
+                else:
+                    print(colored('error: ' + str(status_code), 'red'))
+                continue
+        except (BrokenPipeError, ConnectionResetError):
+            print('\033[F' + colored('Connection timed out', 'red'))
+            connected = False
             continue
 
         # send download request
-        if input_list[0] == constants.DOWNLOAD:
-            status_code, content, temp = download_request(input_list[1].strip('"'))
+        try:
+            if input_list[0] == constants.DOWNLOAD:
+                status_code, content, temp = download_request(input_list[1].strip('"'))
 
-            if int(status_code) == 201:
-                print('\033[F' + colored('Successfully downloaded', 'green'))
-            elif int(status_code) == 302:
-                print('\033[F' + colored('Access denied', 'red'))
-            elif int(status_code) == 301:
-                print('\033[F' + colored('File not found', 'red'))
-            else:
-                print('\033[F' + colored('Error: ' + str(status_code), 'red'))
+                if int(status_code) == 201:
+                    print('\033[F' + colored('Successfully downloaded', 'green'))
+                elif int(status_code) == 302:
+                    print('\033[F' + colored('Access denied', 'red'))
+                elif int(status_code) == 301:
+                    print('\033[F' + colored('File not found', 'red'))
+                else:
+                    print('\033[F' + colored('Error: ' + str(status_code), 'red'))
+                continue
+        except:
+            print('\033[F' + colored('Connection timed out', 'red'))
+            connected = False
             continue
-
 
 def test():
     """Used for testing"""
@@ -305,4 +346,14 @@ def test():
 
 if __name__ == '__main__':
     os.system('color')
-    main()
+    os.system('cls' if os.name == 'nt' else 'clear')
+    try:
+        main()
+    except KeyboardInterrupt:
+        try:
+            exit_request()
+        except AttributeError:
+            pass
+        os.system('cls' if os.name == 'nt' else 'clear')
+        pass
+
